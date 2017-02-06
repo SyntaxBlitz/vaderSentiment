@@ -16,6 +16,8 @@ from itertools import product
 from inspect import getsourcefile
 from os.path import abspath, join, dirname
 
+from nltk.corpus import wordnet
+
 ##Constants##
 
 # (empirically derived mean sentiment intensity rating increase for booster words)
@@ -198,6 +200,7 @@ class SentimentIntensityAnalyzer(object):
         with open(lexicon_full_filepath) as f:
             self.lexicon_full_filepath = f.read()
         self.lexicon = self.make_lex_dict()
+        self.alternate_lexicon = {}
 
     def make_lex_dict(self):
         """
@@ -208,6 +211,42 @@ class SentimentIntensityAnalyzer(object):
             (word, measure) = line.strip().split('\t')[0:2]
             lex_dict[word] = float(measure)
         return lex_dict
+
+    def in_lexicon(self, item_lowercase):
+        if item_lowercase in self.lexicon:
+            return True
+        elif item_lowercase in self.alternate_lexicon:
+            if self.alternate_lexicon[item_lowercase] == None:
+                return False
+            else:
+                return True
+        else: # not sure yet
+            self.try_synonyms(item_lowercase)
+            return self.in_lexicon(item_lowercase)
+
+    def get_lexicon(self, item_lowercase):
+        if item_lowercase in self.lexicon:
+            return self.lexicon[item_lowercase]
+        elif item_lowercase in self.alternate_lexicon:
+            if self.alternate_lexicon[item_lowercase] == None:
+                return None
+            else:
+                return self.alternate_lexicon[item_lowercase]
+        else:
+            return None
+
+    def try_synonyms(self, item_lowercase):
+        synonym_set = set()
+        synsets = wordnet.synsets(item_lowercase)
+        for synset in synsets:
+            for word in synset.lemma_names():
+                synonym_set.add(word)
+
+        lexicon_values = [self.lexicon[word] for word in synonym_set if word in self.lexicon]
+        if len(lexicon_values) == 0:
+            self.alternate_lexicon[item_lowercase] = None
+        else:
+            self.alternate_lexicon[item_lowercase] = sum(lexicon_values) / len(lexicon_values)    # the word's sentiment is now the average of the synonyms in the lexicon
 
     def polarity_scores(self, text):
         """
@@ -241,9 +280,9 @@ class SentimentIntensityAnalyzer(object):
         is_cap_diff = sentitext.is_cap_diff
         words_and_emoticons = sentitext.words_and_emoticons
         item_lowercase = item.lower()
-        if item_lowercase in self.lexicon:
+        if self.in_lexicon(item_lowercase):
             #get the sentiment valence
-            valence = self.lexicon[item_lowercase]
+            valence = self.get_lexicon(item_lowercase)
 
             #check if sentiment laden word is in ALL CAPS (while others aren't)
             if item.isupper() and is_cap_diff:
